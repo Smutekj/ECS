@@ -199,6 +199,8 @@ namespace  //! THIS NAMESPACE NEEDS TO BE ANONYMOUS FOR SOME REASON???
         EXPECT_FALSE(world.has<CompB>(e1.id));
 
         EXPECT_EQ(world.get<CompC>(e1.id).x, 5); //! value of C component has not changed!
+
+        //! remove all components
     }
 
 
@@ -212,7 +214,7 @@ namespace  //! THIS NAMESPACE NEEDS TO BE ANONYMOUS FOR SOME REASON???
         auto e3 = world.addEntity(CompA{.a=1}, CompB{.x=5}, CompC{.x='C'});
 
         int call_count = 0;
-        std::function<void(CompA&, CompB&)> action = [&call_count](CompA& a, CompB& b)
+        auto action = [&call_count](CompA& a, CompB& b)
         {
             EXPECT_EQ(a.a, 1);
             EXPECT_FLOAT_EQ(b.x, 5);

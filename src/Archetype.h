@@ -6,8 +6,15 @@
 #include <functional>
 #include <unordered_set>
 #include <unordered_map>
+#include <concepts>
 
 #include "Component.h"
+
+#ifndef MEMORY_CHUNK_SIZE
+#define MEMORY_CHUNK_SIZE 4096
+#endif
+
+constexpr int COMPONENT_CHUNK_SIZE = MEMORY_CHUNK_SIZE;
 
 struct CompTypeInfo
 {
@@ -52,283 +59,36 @@ CompTypeInfo makeTypeinfo()
 			std::destroy_at(reinterpret_cast<Comp *>(src)); }};
 }
 
-constexpr int COMPONENT_CHUNK_SIZE = 2048;
-
 struct Archetype
 {
-	~Archetype()
-	{
-		//! call all dtors
-		for (int comp_i = 0; comp_i < m_count; ++comp_i)
-		{
-			auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
-			auto entity_offset = getIndexInArray(comp_i);
-			for (auto &rtti : m_type_info)
-			{
-				auto obj_p = chunk.data() + entity_offset + m_type2offsets.at(rtti.id);
-				rtti.dtor(obj_p);
-			}
-		}
-	}
 
-	void registerComps(std::vector<CompTypeInfo> type_info)
-	{
-		m_type_info = type_info;
+	~Archetype();
 
-		std::size_t offset = 0;
-		for (auto &comp_rtti : m_type_info)
-		{
-			m_type2offsets[comp_rtti.id] = offset;
-			offset += comp_rtti.size;
-			m_total_size += comp_rtti.size;
-		}
-
-		auto max_align = m_type_info[0].align;
-		m_padding = (max_align - (offset % max_align)) % max_align;
-		m_total_size += m_padding;
-	}
+	void registerComps(std::vector<CompTypeInfo> type_info);
 
 	template <Component... Comps>
-	void registerComps()
-	{
-		m_type_info.resize(sizeof...(Comps));
-
-		int i = 0;
-		((m_type_info.at(i++) = makeTypeinfo<Comps>()), ...);
-
-		//! largest alignements go first in component blocks -> if the first is aligned then so are the others
-		std::sort(m_type_info.begin(), m_type_info.end());
-
-		std::size_t offset = 0;
-		for (auto &[id, align, size, a, b, c] : m_type_info)
-		{
-			m_type2offsets[id] = offset;
-			offset += size;
-		}
-		auto max_align = m_type_info[0].align;
-		m_padding = (max_align - (offset % max_align)) % max_align;
-
-		m_total_size = (sizeof(Comps) + ... + (0));
-		m_total_size += m_padding;
-	}
+	void registerComps();
 
 	template <Component Comp>
-	Comp &get2(std::size_t entity_id)
-	{
-		auto comp_i = m_entities.at(entity_id);
-		auto comp_offset = m_type2offsets.at(Comp::id);
-		auto entity_offset = getIndexInArray(comp_i);
+	Comp &get2(std::size_t entity_id);
 
-		auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
-		return *std::launder(reinterpret_cast<Comp *>(chunk.data() + entity_offset + comp_offset));
-	}
+	template <class Callable, Component... Comps>
+	void forEach2(Callable action);
 
-	template <Component... Comps>
-	void forEach2(std::function<void(Comps &...)> action)
-	{
-		std::array<std::size_t, sizeof...(Comps)> offsets;
-		int k = sizeof...(Comps);
-		(..., (offsets.at(--k) = m_type2offsets.at(Comps::id)));
-
-		for (int comp_i = 0; comp_i < m_count; ++comp_i)
-		{
-			auto entity_offset = getIndexInArray(comp_i);
-			auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
-			int i = 0;
-			action(
-				(*std::launder(reinterpret_cast<Comps *>(chunk.data() + entity_offset + offsets.at(i++))))...);
-		}
-	}
-
-	std::byte *allocateNewEntity(std::size_t entity_id)
-	{
-		if (needsAnotherChunk())
-		{
-			m_buffer_stable.emplace_back(); //! create new chunk
-			m_count_last_chunk = 0;
-		}
-
-		auto &chunk = m_buffer_stable.at(getArrayIndex(m_count));
-		auto entity_offset = getIndexInArray(m_count);
-
-		//! bookkeeping
-		m_entities[entity_id] = m_buffer2entity_id.size();
-		m_buffer2entity_id.push_back(entity_id);
-
-		m_count++;
-		m_count_last_chunk++;
-		return chunk.data() + entity_offset;
-	}
-	void addEntity2(std::size_t entity_id, std::vector<std::byte> data)
-	{
-		assert(!m_entities.contains(entity_id));
-		assert(data.size() == m_total_size);
-
-		if (needsAnotherChunk())
-		{
-			m_buffer_stable.emplace_back(); //! create new chunk
-			m_count_last_chunk = 0;
-		}
-
-		auto &chunk = m_buffer_stable.at(getArrayIndex(m_count));
-		auto entity_offset = getIndexInArray(m_count);
-
-		//! move all components construct in their chunk
-		for (auto &type : m_type_info)
-		{
-			auto dest_p = chunk.data() + entity_offset + m_type2offsets.at(type.id);
-			auto src_p = data.data() + m_type2offsets.at(type.id);
-			type.move(dest_p, src_p);
-		}
-
-		m_entities[entity_id] = m_buffer2entity_id.size();
-		m_buffer2entity_id.push_back(entity_id);
-
-		m_count++;
-		m_count_last_chunk++;
-		assert(getIndexInArray(m_count - 1) == (m_count_last_chunk-1)*m_total_size);
-
-	}
+	std::byte *allocateNewEntity(std::size_t entity_id);
+	void addEntity2(std::size_t entity_id, std::vector<std::byte> data);
 
 	//! adds components of the entity entity_id at the end of the m_buffer by copy constructing them
 	template <Component... Comps>
-	void addEntity2(std::size_t entity_id, Comps... data)
-	{
-		assert(!m_entities.contains(entity_id));
+	void addEntity2(std::size_t entity_id, Comps... data);
 
-		if (needsAnotherChunk())
-		{
-			m_buffer_stable.emplace_back(); //! create new chunk
-			m_count_last_chunk = 0;
-		}
-		auto &chunk = m_buffer_stable.at(getArrayIndex(m_count));
-		auto entity_offset = getIndexInArray(m_count);
-		assert(entity_offset + m_total_size <= COMPONENT_CHUNK_SIZE); //! NO DATA OUTSIDE OF THE CHUNK!
+	std::vector<std::byte> removeEntityAndGetData(int entity_id);
 
-		//! fold expression to construct all Comps... data at their respective offsets
-		std::size_t offset = 0;
-		(
-			(
-				offset = entity_offset + m_type2offsets.at(Comps::id),
-				std::construct_at(std::launder(reinterpret_cast<Comps *>(chunk.data() + offset)), data)),
-			...);
+	void removeEntity2(int entity_id);
 
-		m_entities[entity_id] = m_buffer2entity_id.size();
-		m_buffer2entity_id.push_back(entity_id);
+	bool empty() const;
 
-		m_count++;
-		m_count_last_chunk++;
-		assert(getIndexInArray(m_count - 1) == (m_count_last_chunk-1)*m_total_size);
-	}
-
-	std::vector<std::byte> removeEntityAndGetData(int entity_id)
-	{
-		assert(m_count > 0);
-
-		auto comp_i = m_entities.at(entity_id);
-
-		auto entity_offset = getIndexInArray(comp_i);
-		auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
-		assert(m_count_last_chunk > 0);
-
-		std::vector<std::byte> components(m_total_size);
-		//! move the removed comps into returned buffer components (this calls their destructors)
-		for (auto &type : m_type_info)
-		{
-			auto dest_p = components.data() + m_type2offsets.at(type.id);
-			auto comp_p = chunk.data() + entity_offset + m_type2offsets.at(type.id);
-			type.move(dest_p, comp_p);
-		}
-
-		bool is_last_in_chunk = getIndexInArray(m_count - 1) == getIndexInArray(comp_i);  
-		bool is_last_chunk = getArrayIndex(m_count - 1) == getArrayIndex(comp_i);  
-		//! if removing last component, we do not swap!
-		if ( !(is_last_in_chunk && is_last_chunk))
-		{
-			assert(getIndexInArray(m_count - 1) == (m_count_last_chunk-1)*m_total_size);
-			auto &last_chunk = m_buffer_stable.at(getArrayIndex(m_count-1));
-			auto start_comp_p = chunk.data() + entity_offset;
-			auto last_comp_p = last_chunk.data() + (m_count_last_chunk - 1) * m_total_size;
-			//! move from end to created spot
-			for (auto &type : m_type_info)
-			{
-				type.move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
-			}
-		}
-
-		//! book keeping
-		auto last_entity_id = m_buffer2entity_id.at(m_count - 1);
-		m_entities.at(last_entity_id) = comp_i;
-		m_buffer2entity_id.at(comp_i) = last_entity_id;
-
-		//! pop
-		m_buffer2entity_id.pop_back();
-		m_entities.erase(entity_id);
-		m_count--;
-		m_count_last_chunk--;
-		if(m_count_last_chunk == 0)
-		{
-			m_count_last_chunk = COMPONENT_CHUNK_SIZE / m_total_size; //! next BYTE_CHUNK will be used next time
-		}
-		return components;
-	}
-
-	void removeEntity2(int entity_id)
-	{
-		assert(m_count > 0);
-
-		auto comp_i = m_entities.at(entity_id);
-		auto entity_offset = getIndexInArray(comp_i);
-
-		auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
-
-		//! destroy the removed comps
-		for (auto &type : m_type_info)
-		{
-			auto comp_p = chunk.data() + entity_offset;
-			type.dtor(comp_p + m_type2offsets.at(type.id));
-		}
-
-		bool is_last_in_chunk = getIndexInArray(m_count - 1) == getIndexInArray(comp_i);  
-		bool is_last_chunk = getArrayIndex(m_count - 1) == getArrayIndex(comp_i);  
-		//! if removing last component, we do not swap!
-		if ( !(is_last_in_chunk && is_last_chunk))
-		{
-			assert(getIndexInArray(m_count - 1) == (m_count_last_chunk-1)*m_total_size);
-			auto &last_chunk = m_buffer_stable.at(getArrayIndex(m_count-1));
-			auto start_comp_p = chunk.data() + entity_offset;
-			auto last_comp_p = last_chunk.data() + (m_count_last_chunk - 1) * m_total_size;
-			//! move from end to created hole
-			for (auto &type : m_type_info)
-			{
-				type.move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
-			}
-		}
-
-		//! book keeping
-		auto last_entity_id = m_buffer2entity_id.at(m_count - 1);
-		m_entities.at(last_entity_id) = comp_i;
-		m_buffer2entity_id.at(comp_i) = last_entity_id;
-
-		m_buffer2entity_id.pop_back();
-		m_entities.erase(entity_id);
-		m_count--;
-		m_count_last_chunk--;
-		if(m_count_last_chunk == 0)
-		{
-			m_count_last_chunk = COMPONENT_CHUNK_SIZE / m_total_size; //! next BYTE_CHUNK will be used next time
-		}
-	}
-
-	bool empty() const
-	{
-		return m_count == 0;
-	}
-
-	std::size_t chunkCount() const
-	{
-		return m_buffer_stable.size();
-	}
+	std::size_t chunkCount() const;
 
 	using EntityId = std::size_t;
 
@@ -339,28 +99,16 @@ struct Archetype
 	std::unordered_map<int, std::size_t> m_type2offsets;
 
 private:
-	std::size_t getArrayIndex(std::size_t comp_index) const
-	{
-		//! end of component block must be inside CHUNK_SIZE
-		int blocks_per_chunk = COMPONENT_CHUNK_SIZE / m_total_size;
-		return (comp_index) / blocks_per_chunk;
-	}
-	std::size_t getIndexInArray(std::size_t comp_index) const
-	{
-		int blocks_per_chunk = COMPONENT_CHUNK_SIZE / m_total_size;
-		return ((comp_index) % blocks_per_chunk)*m_total_size;
-	}
-	bool needsAnotherChunk() const
-	{
-		//! if next inserted component block is beyond CHUNK_SIZE we need another chunk
-		return (m_count_last_chunk + 1) * m_total_size > COMPONENT_CHUNK_SIZE;
-	}
+	std::size_t getBlocksPerChunk() const;
+	std::size_t getArrayIndex(std::size_t comp_index) const;
+	std::size_t getIndexInArray(std::size_t comp_index) const;
+	bool needsAnotherChunk() const;
 
 	struct ByteChunk
 	{
-		alignas(std::max_align_t) std::vector<std::byte>  buffer;
+		alignas(std::max_align_t) std::vector<std::byte> buffer;
 
-		ByteChunk() : buffer(COMPONENT_CHUNK_SIZE){}
+		ByteChunk() : buffer(COMPONENT_CHUNK_SIZE) {}
 
 		std::byte *data()
 		{
@@ -375,3 +123,101 @@ private:
 	std::vector<EntityId> m_buffer2entity_id;			  //! entity ids of each component block
 	std::unordered_map<EntityId, std::size_t> m_entities; //! component block id of each entity
 };
+
+template <Component... Comps>
+void Archetype::registerComps()
+{
+	m_type_info.resize(sizeof...(Comps));
+
+	int i = 0;
+	((m_type_info.at(i++) = makeTypeinfo<Comps>()), ...);
+
+	//! largest alignements go first in component blocks -> if the first is aligned then so are the others
+	std::sort(m_type_info.begin(), m_type_info.end());
+
+	std::size_t offset = 0;
+	for (auto &[id, align, size, a, b, c] : m_type_info)
+	{
+		m_type2offsets[id] = offset;
+		offset += size;
+	}
+	auto max_align = m_type_info[0].align;
+	m_padding = (max_align - (offset % max_align)) % max_align;
+
+	m_total_size = (sizeof(Comps) + ... + (0));
+	m_total_size += m_padding;
+}
+
+template <Component Comp>
+Comp &Archetype::get2(std::size_t entity_id)
+{
+	auto comp_i = m_entities.at(entity_id);
+	auto comp_offset = m_type2offsets.at(Comp::id);
+	auto entity_offset = getIndexInArray(comp_i);
+
+	auto &chunk = m_buffer_stable.at(getArrayIndex(comp_i));
+	return *std::launder(reinterpret_cast<Comp *>(chunk.data() + entity_offset + comp_offset));
+}
+
+template <class Callable, Component... Comps>
+void Archetype::forEach2(Callable action)
+{
+	std::array<std::size_t, sizeof...(Comps)> offsets;
+	int k = sizeof...(Comps);
+	(..., (offsets.at(--k) = m_type2offsets.at(Comps::id))); //! the pack expansion is opposite of what i need???
+
+	std::size_t chunk_count = getArrayIndex(m_count - 1)+1;
+	for (int chunk_i = 0; chunk_i < chunk_count - 1; ++chunk_i)
+	{
+		auto &chunk = m_buffer_stable.at(chunk_i);
+		std::size_t comps_per_chunk = getBlocksPerChunk();
+		for (int comp_i = 0; comp_i < comps_per_chunk; ++comp_i)
+		{
+			int entity_offset = comp_i * m_total_size;
+			int i = 0;
+			action(
+				(*std::launder(reinterpret_cast<Comps *>(chunk.data() + entity_offset + offsets.at(i++))))...);
+		}
+	}
+
+	//! last chunk is not full so we iterate separately
+	auto &last_chunk = m_buffer_stable.at(chunk_count - 1);
+	for (int comp_i = 0; comp_i < m_count_last_chunk; ++comp_i)
+	{
+		int entity_offset = comp_i * m_total_size;
+		int i = 0;
+		action(
+			(*std::launder(reinterpret_cast<Comps *>(last_chunk.data() + entity_offset + offsets.at(i++))))...);
+	}
+}
+
+//! adds components of the entity entity_id at the end of the m_buffer by copy constructing them
+template <Component... Comps>
+void Archetype::addEntity2(std::size_t entity_id, Comps... data)
+{
+	assert(!m_entities.contains(entity_id));
+
+	if (needsAnotherChunk())
+	{
+		m_buffer_stable.emplace_back(); //! create new chunk
+		m_count_last_chunk = 0;
+	}
+	auto &chunk = m_buffer_stable.at(getArrayIndex(m_count));
+	auto entity_offset = getIndexInArray(m_count);
+	assert(entity_offset + m_total_size <= COMPONENT_CHUNK_SIZE); //! NO DATA OUTSIDE OF THE CHUNK!
+
+	//! fold expression to construct all Comps... data at their respective offsets
+	std::size_t offset = 0;
+	(
+		(
+			offset = entity_offset + m_type2offsets.at(Comps::id),
+			std::construct_at(std::launder(reinterpret_cast<Comps *>(chunk.data() + offset)), data)),
+		...);
+
+	m_entities[entity_id] = m_buffer2entity_id.size();
+	m_buffer2entity_id.push_back(entity_id);
+
+	m_count++;
+	m_count_last_chunk++;
+	assert(getIndexInArray(m_count - 1) == (m_count_last_chunk - 1) * m_total_size);
+}

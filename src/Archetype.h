@@ -9,7 +9,6 @@
 #include <concepts>
 #include <algorithm>
 
-
 #include "Component.h"
 
 #ifndef MEMORY_CHUNK_SIZE
@@ -132,7 +131,7 @@ void Archetype::registerComps()
 	m_type_info.resize(sizeof...(Comps));
 
 	int i = 0;
-	((m_type_info.at(i++) = makeTypeinfo<Comps>()), ...);
+	((m_type_info.at(i) = makeTypeinfo<Comps>(), i++), ...);
 
 	//! largest alignements go first in component blocks -> if the first is aligned then so are the others
 	std::sort(m_type_info.begin(), m_type_info.end());
@@ -161,14 +160,25 @@ Comp &Archetype::get2(std::size_t entity_id)
 	return *std::launder(reinterpret_cast<Comp *>(chunk.data() + entity_offset + comp_offset));
 }
 
+template <class Callable, typename... Comps, std::size_t... Is>
+void callActionWithOffsets(
+	Callable action, std::byte *args_data,
+	const std::array<std::size_t, sizeof...(Comps)> &offsets,
+	std::index_sequence<Is...>)
+{
+	action((*std::launder(reinterpret_cast<Comps *>(args_data + offsets[Is])))...);
+}
+
 template <class Callable, Component... Comps>
 void Archetype::forEach2(Callable action)
 {
-	std::array<std::size_t, sizeof...(Comps)> offsets;
-	int k = sizeof...(Comps);
-	(..., (offsets.at(--k) = m_type2offsets.at(Comps::id))); //! the pack expansion is opposite of what i need???
+	constexpr std::size_t comps_count = sizeof...(Comps);
 
-	std::size_t chunk_count = getArrayIndex(m_count - 1)+1;
+	std::array<std::size_t, comps_count> offsets;
+	int k = 0;
+	(..., (offsets.at(k) = m_type2offsets.at(Comps::id), k++)); //! the pack expansion is opposite of what i need???
+
+	std::size_t chunk_count = getArrayIndex(m_count - 1) + 1;
 	for (int chunk_i = 0; chunk_i < chunk_count - 1; ++chunk_i)
 	{
 		auto &chunk = m_buffer_stable.at(chunk_i);
@@ -176,9 +186,7 @@ void Archetype::forEach2(Callable action)
 		for (int comp_i = 0; comp_i < comps_per_chunk; ++comp_i)
 		{
 			int entity_offset = comp_i * m_total_size;
-			int i = 0;
-			action(
-				(*std::launder(reinterpret_cast<Comps *>(chunk.data() + entity_offset + offsets.at(i++))))...);
+			callActionWithOffsets<Callable, Comps...>(action, chunk.data() + entity_offset, offsets, std::index_sequence_for<Comps...>{});
 		}
 	}
 
@@ -187,9 +195,7 @@ void Archetype::forEach2(Callable action)
 	for (int comp_i = 0; comp_i < m_count_last_chunk; ++comp_i)
 	{
 		int entity_offset = comp_i * m_total_size;
-		int i = 0;
-		action(
-			(*std::launder(reinterpret_cast<Comps *>(last_chunk.data() + entity_offset + offsets.at(i++))))...);
+		callActionWithOffsets<Callable, Comps...>(action, last_chunk.data() + entity_offset, offsets, std::index_sequence_for<Comps...>{});
 	}
 }
 

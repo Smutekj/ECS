@@ -19,9 +19,10 @@ using ArchetypeId = std::bitset<MAX_COMPONENT_COUNT>;
 struct Entity
 {
     std::size_t id;
-    std::size_t archetype_id;
     ArchetypeId comp_ids;
 };
+static_assert(std::is_default_constructible_v<Entity>);
+
 
 //! this operator means: first IS CONTAINED in second
 //! for instance Archetype: AB IS CONTAINED in ABCD and ABD but not in AD
@@ -30,6 +31,8 @@ bool operator<=(const ArchetypeId &first, const ArchetypeId &second);
 
 struct EntityWorld
 {
+    EntityWorld() : m_entities(){};
+
     template <Component... Comps>
     ArchetypeId getId() const;
 

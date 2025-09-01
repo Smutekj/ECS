@@ -17,6 +17,8 @@
 
 constexpr int COMPONENT_CHUNK_SIZE = MEMORY_CHUNK_SIZE;
 
+using EntityId = std::size_t;
+
 struct CompTypeInfo
 {
 	int id;
@@ -90,8 +92,6 @@ struct Archetype
 	bool empty() const;
 
 	std::size_t chunkCount() const;
-
-	using EntityId = std::size_t;
 
 	//! saved components info
 	std::size_t m_total_size = 0; //! size in bytes of a single component block

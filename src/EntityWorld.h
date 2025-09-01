@@ -5,7 +5,6 @@
 #include <iostream>
 #include <bitset>
 #include <cstring>
-#include <array>
 
 #ifndef MAX_ENTITY_COUNT
 constexpr int MAX_ENTITY_COUNT = 20000;
@@ -19,7 +18,7 @@ using ArchetypeId = std::bitset<MAX_COMPONENT_COUNT>;
 
 struct Entity
 {
-    std::size_t id;
+    EntityId id;
     ArchetypeId comp_ids;
 };
 static_assert(std::is_default_constructible_v<Entity>);
@@ -33,12 +32,12 @@ bool operator<=(const ArchetypeId &first, const ArchetypeId &second);
 struct EntityWorld
 {
     EntityWorld();
-    
+
     template <Component... Comps>
     ArchetypeId getId() const;
 
     template <Component Comp>
-    bool has(std::size_t entity_id) const;
+    bool has(EntityId entity_id) const;
 
     void removeEntity(std::size_t id);
 
@@ -46,16 +45,16 @@ struct EntityWorld
     void forEach(Callable &&callable);
 
     template <Component Comp>
-    Comp &get(std::size_t entity_id);
+    Comp &get(EntityId entity_id);
 
     template <Component... Comps>
     Entity addEntity(Comps... comps);
 
     template <Component Comp>
-    void addComponent(int entity_id, Comp comp);
+    void addComponent(EntityId entity_id, Comp comp);
 
     template <Component Comp>
-    void removeComponent(int entity_id);
+    void removeComponent(EntityId entity_id);
 
 private:
     template <typename C, typename R, class... Comps>
@@ -75,7 +74,7 @@ private:
 
     std::array<Entity, MAX_ENTITY_COUNT> m_entities; //!< entity storage
     std::size_t m_entity_count = 0;                  //!< number of existing entities
-    std::vector<std::size_t> m_free_entity_ids;      //!< entity id free-list
+    std::vector<EntityId> m_free_entity_ids;      //!< entity id free-list
 };
 
 template <Component... Comps>
@@ -87,7 +86,7 @@ ArchetypeId EntityWorld::getId() const
 }
 
 template <Component Comp>
-bool EntityWorld::has(std::size_t entity_id) const
+bool EntityWorld::has(EntityId entity_id) const
 {
     return m_entities.at(entity_id).comp_ids[Comp::id];
 }
@@ -124,7 +123,7 @@ void EntityWorld::forEach(Callable &&callable)
 }
 
 template <Component Comp>
-Comp &EntityWorld::get(std::size_t entity_id)
+Comp &EntityWorld::get(EntityId entity_id)
 {
     return m_archetypes.at(m_entities.at(entity_id).comp_ids).get2<Comp>(entity_id);
 }
@@ -151,7 +150,7 @@ Entity EntityWorld::addEntity(Comps... comps)
 };
 
 template <Component Comp>
-void EntityWorld::addComponent(int entity_id, Comp comp)
+void EntityWorld::addComponent(EntityId entity_id, Comp comp)
 {
     auto &entity = m_entities.at(entity_id);
     auto &archetype = m_archetypes.at(entity.comp_ids);
@@ -199,9 +198,12 @@ void EntityWorld::addComponent(int entity_id, Comp comp)
 }
 
 template <Component Comp>
-void EntityWorld::removeComponent(int entity_id)
+void EntityWorld::removeComponent(EntityId entity_id)
 {
-    assert(has<Comp>(entity_id));
+    if(!has<Comp>(entity_id))
+    {
+        return; //! do nothing!
+    }
 
     auto &entity = m_entities.at(entity_id);
     auto &archetype = m_archetypes.at(entity.comp_ids);

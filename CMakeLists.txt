@@ -24,19 +24,24 @@ target_include_directories(comps
 )
 
 if(BUILD_TESTS)
-# add_executable(ecs_test src/speedTest.cpp)
-add_executable(ecs_test src/tests/main.cpp src/tests/test.cc)
-target_link_libraries(ecs_test PRIVATE comps GTest::gtest_main)
-endif()
+    enable_testing()
 
+    add_executable(ecs_test src/tests/main.cpp src/tests/test.cc)
+    target_link_libraries(ecs_test PRIVATE comps GTest::gtest_main)
 
-target_compile_options(comps PRIVATE 
+    
+    target_compile_options(comps PRIVATE 
     # -fsanitize=address,undefined
     # -fno-omit-frame-pointer
     # -static-libasan
     -g
     -O1
     )
+    add_test(TEST_STUFF ecs_test COMMAND ecs_test)
+endif()
+
+# add_executable(ecs_test src/speedTest.cpp)
+
 # target_link_options(comps PRIVATE -fsanitize=address,undefined -static-libasan)
 
 # target_compile_definitions(foobar PRIVATE

@@ -1,6 +1,8 @@
 #include "EntityWorld.h"
 
 
+EntityWorld::EntityWorld() : m_entities(){};
+
 bool operator<=(const ArchetypeId &first, const ArchetypeId &second)
 {
     return (first & second) == first;

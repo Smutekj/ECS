@@ -31,8 +31,8 @@ bool operator<=(const ArchetypeId &first, const ArchetypeId &second);
 
 struct EntityWorld
 {
-    EntityWorld() : m_entities(){};
-
+    EntityWorld();
+    
     template <Component... Comps>
     ArchetypeId getId() const;
 

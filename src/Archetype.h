@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <concepts>
+#include <algorithm>
+
 
 #include "Component.h"
 

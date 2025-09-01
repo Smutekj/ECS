@@ -5,7 +5,6 @@
 #include <iostream>
 #include <bitset>
 #include <cstring>
-#include <algorithm>
 
 #ifndef MAX_ENTITY_COUNT
 constexpr int MAX_ENTITY_COUNT = 20000;
@@ -14,7 +13,6 @@ constexpr int MAX_ENTITY_COUNT = 20000;
 #ifndef MAX_COMPONENT_COUNT
 constexpr int MAX_COMPONENT_COUNT = 64;
 #endif
-
 
 using ArchetypeId = std::bitset<MAX_COMPONENT_COUNT>;
 
@@ -27,7 +25,7 @@ struct Entity
 
 //! this operator means: first IS CONTAINED in second
 //! for instance Archetype: AB IS CONTAINED in ABCD and ABD but not in AD
-//! when this is true then action with ArchetypeId second should be called when ArchetypeId first is called 
+//! when this is true then action with ArchetypeId second should be called when ArchetypeId first is called
 bool operator<=(const ArchetypeId &first, const ArchetypeId &second);
 
 struct EntityWorld
@@ -64,12 +62,12 @@ private:
 
     std::size_t getNewId();
 
+public:
+    std::unordered_map<ArchetypeId, Archetype> m_archetypes; //!< holds all archetype, which hold all components
 private:
     //! remembers which action get called for each ID.
     //! For example: If we have archetypes A, AB, and ABC and action AB, then AB and ABC should be called
     std::unordered_map<ArchetypeId, std::unordered_set<ArchetypeId>> m_id2action_ids;
-
-    std::unordered_map<ArchetypeId, Archetype> m_archetypes; //!< holds all archetype, which hold all components
 
     std::array<Entity, MAX_ENTITY_COUNT> m_entities; //!< entity storage
     std::size_t m_entity_count = 0;                  //!< number of existing entities

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <bitset>
 #include <cstring>
+#include <array>
 
 #ifndef MAX_ENTITY_COUNT
 constexpr int MAX_ENTITY_COUNT = 20000;

@@ -3,6 +3,7 @@
 #include <EntityWorld.h>
 #include <type_traits>
 
+using namespace ecs;
 
 struct CompA : public CompTag<CompA>
 {

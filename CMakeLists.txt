@@ -17,8 +17,8 @@ if(BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-add_library(comps STATIC src/EntityWorld.cpp src/Archetype.cpp src/Component.cpp)
-target_include_directories(comps
+add_library(ecs STATIC src/EntityWorld.cpp src/Archetype.cpp)
+target_include_directories(ecs
     PUBLIC 
     src
 )
@@ -27,10 +27,10 @@ if(BUILD_TESTS)
     enable_testing()
 
     add_executable(ecs_test src/tests/main.cpp src/tests/test.cc)
-    target_link_libraries(ecs_test PRIVATE comps GTest::gtest_main)
+    target_link_libraries(ecs_test PRIVATE ecs GTest::gtest_main)
 
     
-    target_compile_options(comps PRIVATE 
+    target_compile_options(ecs PRIVATE 
     # -fsanitize=address,undefined
     # -fno-omit-frame-pointer
     # -static-libasan
@@ -42,7 +42,7 @@ endif()
 
 # add_executable(ecs_test src/speedTest.cpp)
 
-# target_link_options(comps PRIVATE -fsanitize=address,undefined -static-libasan)
+# target_link_options(ecs PRIVATE -fsanitize=address,undefined -static-libasan)
 
 # target_compile_definitions(foobar PRIVATE
 #     $<$<CONFIG:Debug>:

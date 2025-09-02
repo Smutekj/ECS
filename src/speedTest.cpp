@@ -2,27 +2,27 @@
 
 #include <cmath>
 
-struct CompA : public CompTag<CompA>
+struct CompA : public ecs::CompTag<CompA>
 {
     float x;
     float y;
 };
 
-struct CompB : public CompTag<CompB>
+struct CompB : public ecs::CompTag<CompB>
 {
     float x;
     float y;
     float z;
 };
 
-struct CompC : public CompTag<CompC>
+struct CompC : public ecs::CompTag<CompC>
 {
     float vx;
     float vy;
     float max_vel;
 };
 
-struct CompD : public CompTag<CompD>
+struct CompD : public ecs::CompTag<CompD>
 {
     float vx;
     float vy;
@@ -36,9 +36,9 @@ REGISTER(CompD)
 
 
 
-
 int main(int argc, char **argv)
 {
+    using namespace ecs;
 
     EntityWorld world;
 

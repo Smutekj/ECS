@@ -12,7 +12,7 @@ namespace ecs
             for (auto &rtti : m_type_info)
             {
                 auto obj_p = chunk.data() + entity_offset + m_type2offsets.at(rtti.id);
-                rtti.dtor(obj_p);
+                rtti.v_table->dtor(obj_p);
             }
         }
     }
@@ -72,7 +72,7 @@ namespace ecs
         {
             auto dest_p = chunk.data() + entity_offset + m_type2offsets.at(type.id);
             auto src_p = data.data() + m_type2offsets.at(type.id);
-            type.move(dest_p, src_p);
+            type.v_table->move(dest_p, src_p);
         }
 
         m_entities[entity_id] = m_buffer2entity_id.size();
@@ -99,7 +99,7 @@ namespace ecs
         {
             auto dest_p = components.data() + m_type2offsets.at(type.id);
             auto comp_p = chunk.data() + entity_offset + m_type2offsets.at(type.id);
-            type.move(dest_p, comp_p);
+            type.v_table->move(dest_p, comp_p);
         }
 
         bool is_last_in_chunk = getIndexInArray(m_count - 1) == getIndexInArray(comp_i);
@@ -114,7 +114,7 @@ namespace ecs
             //! move from end to created spot
             for (auto &type : m_type_info)
             {
-                type.move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
+                type.v_table->move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
             }
         }
 
@@ -130,7 +130,7 @@ namespace ecs
         m_count_last_chunk--;
         if (m_count_last_chunk == 0)
         {
-            m_count_last_chunk = COMPONENT_CHUNK_SIZE / m_total_size; //! next BYTE_CHUNK will be used next time
+            m_count_last_chunk = getBlocksPerChunk(); //! next BYTE_CHUNK will be used next time
         }
         return components;
     }
@@ -148,7 +148,7 @@ namespace ecs
         for (auto &type : m_type_info)
         {
             auto comp_p = chunk.data() + entity_offset;
-            type.dtor(comp_p + m_type2offsets.at(type.id));
+            type.v_table->dtor(comp_p + m_type2offsets.at(type.id));
         }
 
         bool is_last_in_chunk = getIndexInArray(m_count - 1) == getIndexInArray(comp_i);
@@ -163,7 +163,7 @@ namespace ecs
             //! move from end to created hole
             for (auto &type : m_type_info)
             {
-                type.move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
+                type.v_table->move(start_comp_p + m_type2offsets.at(type.id), last_comp_p + m_type2offsets.at(type.id));
             }
         }
 
@@ -178,7 +178,7 @@ namespace ecs
         m_count_last_chunk--;
         if (m_count_last_chunk == 0)
         {
-            m_count_last_chunk = COMPONENT_CHUNK_SIZE / m_total_size; //! next BYTE_CHUNK will be used next time
+            m_count_last_chunk = getBlocksPerChunk(); //! next BYTE_CHUNK will be used next time
         }
     }
 

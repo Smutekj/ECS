@@ -5,6 +5,7 @@ REGISTER(CompA)
 REGISTER(CompB)
 REGISTER(CompC)
 REGISTER(CompD)
+REGISTER(Tag)
 REGISTER(CompFunction)
 REGISTER(CompSharedPtr)
 

@@ -28,7 +28,7 @@ if(BUILD_TESTS)
 
     add_executable(ecs_test src/tests/main.cpp src/tests/test.cc)
     target_link_libraries(ecs_test PRIVATE ecs GTest::gtest_main)
-
+    
     
     target_compile_options(ecs PRIVATE 
     # -fsanitize=address,undefined
@@ -38,9 +38,16 @@ if(BUILD_TESTS)
     -O1
     )
     add_test(TEST_STUFF ecs_test COMMAND ecs_test)
-endif()
-
-# add_executable(ecs_test src/speedTest.cpp)
+    endif()
+    
+    
+# FetchContent_Declare(googlebenchmark
+#     GIT_REPOSITORY https://github.com/google/benchmark.git
+#     GIT_TAG main
+#     )
+# FetchContent_MakeAvailable(googlebenchmark)
+# add_executable(ecs_bench src/speedTest.cpp)
+# target_link_libraries(ecs_bench PRIVATE ecs benchmark::benchmark)
 
 # target_link_options(ecs PRIVATE -fsanitize=address,undefined -static-libasan)
 

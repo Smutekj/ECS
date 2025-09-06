@@ -15,7 +15,7 @@ namespace ecs
 {
 
 #ifndef MEMORY_CHUNK_SIZE
-#define MEMORY_CHUNK_SIZE 4096
+#define MEMORY_CHUNK_SIZE 100000
 #endif
 
 	constexpr int COMPONENT_CHUNK_SIZE = MEMORY_CHUNK_SIZE;
@@ -25,12 +25,55 @@ namespace ecs
 	struct CompTypeInfo
 	{
 		int id;
-		unsigned long align;
 		std::size_t size;
+		unsigned long align;
 
-		void (*copy)(void *dest, const void *src);
-		void (*dtor)(void *obj);
-		void (*move)(void *dest, void *src);
+		template <class Comp>
+		static void destroy_s(void *obj)
+		{
+			std::destroy_at(reinterpret_cast<Comp *>(obj));
+		}
+
+		template <class Comp>
+		static void copy_s(void *dest, const void *src)
+		{
+			std::construct_at(reinterpret_cast<Comp *>(dest),
+							  *reinterpret_cast<const Comp *>(src));
+		}
+
+		template <class Comp>
+		static void move_s(void *dest, void *src)
+		{
+			std::construct_at(reinterpret_cast<Comp *>(dest),
+							  std::move(*reinterpret_cast<Comp *>(src)));
+			std::destroy_at(reinterpret_cast<Comp *>(src));
+		}
+
+		struct VTable
+		{
+			void (*copy)(void *dest, const void *src);
+			void (*dtor)(void *obj);
+			void (*move)(void *dest, void *src);
+		};
+
+		template <class Comp>
+		constexpr static VTable v_table_temp{
+			.copy = &copy_s<Comp>,
+			.dtor = &destroy_s<Comp>,
+			.move = &move_s<Comp>};
+
+		const VTable *v_table = nullptr;
+		template <class Comp>
+		CompTypeInfo(Comp c) : id(Comp::id), size(sizeof(Comp)), align(alignof(Comp)),
+								   v_table(&v_table_temp<Comp>)
+		{
+		}
+
+		CompTypeInfo(const CompTypeInfo& from)
+			: id(from.id), size(from.size), align(from.align)
+		{
+			v_table = from.v_table;
+		}
 
 		bool operator==(const CompTypeInfo &rhs)
 		{
@@ -43,31 +86,9 @@ namespace ecs
 		}
 	};
 
-	template <typename Comp>
-	CompTypeInfo makeTypeinfo()
-	{
-		return {
-			.id = Comp::id,
-			.align = alignof(Comp),
-			.size = sizeof(Comp),
-			// copy constructor
-			.copy = [](void *dest, const void *src)
-			{ std::construct_at(reinterpret_cast<Comp *>(dest),
-								*reinterpret_cast<const Comp *>(src)); },
-			// destructor
-			.dtor = [](void *obj)
-			{ std::destroy_at(reinterpret_cast<Comp *>(obj)); },
-			// move constructor + destroy source
-			.move = [](void *dest, void *src)
-			{
-			std::construct_at(reinterpret_cast<Comp *>(dest),
-							  std::move(*reinterpret_cast<Comp *>(src)));
-			std::destroy_at(reinterpret_cast<Comp *>(src)); }};
-	}
 
 	struct Archetype
 	{
-
 		~Archetype();
 
 		void registerComps(std::vector<CompTypeInfo> type_info);
@@ -86,7 +107,7 @@ namespace ecs
 
 		//! adds components of the entity entity_id at the end of the m_buffer by copy constructing them
 		template <Component... Comps>
-		void addEntity2(std::size_t entity_id, Comps... data);
+		void addEntity2(std::size_t entity_id, Comps&&... data);
 
 		std::vector<std::byte> removeEntityAndGetData(int entity_id);
 
@@ -108,6 +129,7 @@ namespace ecs
 		std::size_t getIndexInArray(std::size_t comp_index) const;
 		bool needsAnotherChunk() const;
 
+
 		struct ByteChunk
 		{
 			alignas(std::max_align_t) std::vector<std::byte> buffer;
@@ -120,6 +142,18 @@ namespace ecs
 			}
 		};
 
+		struct Column
+		{
+			Column()
+			{
+				
+			};
+
+			std::size_t entity_offset;
+			ByteChunk* p_chunk = nullptr;
+		};
+
+
 		std::size_t m_count = 0;				   //! total number of stored entities (i.e. component blocks)
 		std::size_t m_count_last_chunk = 0;		   //! total number of stored entities (i.e. component blocks)
 		std::vector<ByteChunk> m_buffer_stable{1}; //! buffer for all component blocks (starts with one chunk)
@@ -131,16 +165,16 @@ namespace ecs
 	template <Component... Comps>
 	void Archetype::registerComps()
 	{
-		m_type_info.resize(sizeof...(Comps));
+		// m_type_info.resize(sizeof...(Comps));
 
 		int i = 0;
-		((m_type_info.at(i) = makeTypeinfo<Comps>(), i++), ...);
+		((m_type_info.emplace_back(Comps{}), i++), ...);
 
 		//! largest alignements go first in component blocks -> if the first is aligned then so are the others
 		std::sort(m_type_info.begin(), m_type_info.end());
 
 		std::size_t offset = 0;
-		for (auto &[id, align, size, a, b, c] : m_type_info)
+		for (auto &[id, size, align, v_table] : m_type_info)
 		{
 			m_type2offsets[id] = offset;
 			offset += size;
@@ -204,7 +238,7 @@ namespace ecs
 
 	//! adds components of the entity entity_id at the end of the m_buffer by copy constructing them
 	template <Component... Comps>
-	void Archetype::addEntity2(std::size_t entity_id, Comps... data)
+	void Archetype::addEntity2(std::size_t entity_id, Comps&&... data)
 	{
 		assert(!m_entities.contains(entity_id));
 
@@ -222,7 +256,7 @@ namespace ecs
 		(
 			(
 				offset = entity_offset + m_type2offsets.at(Comps::id),
-				std::construct_at(std::launder(reinterpret_cast<Comps *>(chunk.data() + offset)), data)),
+				std::construct_at(std::launder(reinterpret_cast<Comps *>(chunk.data() + offset)), std::forward<Comps>(data))),
 			...);
 
 		m_entities[entity_id] = m_buffer2entity_id.size();

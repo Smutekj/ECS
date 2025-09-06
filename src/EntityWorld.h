@@ -51,7 +51,7 @@ namespace ecs
         Comp &get(EntityId entity_id);
 
         template <Component... Comps>
-        Entity addEntity(Comps... comps);
+        Entity addEntity(Comps&&... comps);
 
         template <Component Comp>
         void addComponent(EntityId entity_id, Comp comp);
@@ -132,7 +132,7 @@ namespace ecs
     }
 
     template <Component... Comps>
-    Entity EntityWorld::addEntity(Comps... comps)
+    Entity EntityWorld::addEntity(Comps&&... comps)
     {
         Entity new_entity;
         new_entity.id = getNewId();
@@ -145,7 +145,7 @@ namespace ecs
             registerToActions(new_entity.comp_ids);
         }
 
-        m_archetypes.at(new_entity.comp_ids).addEntity2(new_entity.id, comps...);
+        m_archetypes.at(new_entity.comp_ids).addEntity2(new_entity.id, std::forward<Comps>(comps)...);
 
         m_entities.at(new_entity.id) = new_entity;
 
@@ -168,7 +168,7 @@ namespace ecs
         {
             //! correct type info
             auto comp_type_info = archetype.m_type_info;
-            CompTypeInfo new_info = makeTypeinfo<Comp>();
+            CompTypeInfo new_info = CompTypeInfo{Comp{}};
 
             auto it = std::lower_bound(comp_type_info.begin(), comp_type_info.end(), new_info);
             comp_type_info.insert(it, new_info);
@@ -196,7 +196,7 @@ namespace ecs
         for (auto &rtti : archetype.m_type_info)
         {
             assert(new_offsets.at(rtti.id) != offset); //! no object is build in added  component spot!
-            rtti.move(new_entity_buffer + new_offsets.at(rtti.id), component_data.data() + old_offsets.at(rtti.id));
+            rtti.v_table->move(new_entity_buffer + new_offsets.at(rtti.id), component_data.data() + old_offsets.at(rtti.id));
         }
     }
 
@@ -238,7 +238,7 @@ namespace ecs
         for (auto &rtti : new_archetype.m_type_info)
         {
             assert(rtti.id != Comp::id); //! none of the resting components can be the remove one!
-            rtti.move(new_entity_buffer + new_offsets.at(rtti.id), component_data.data() + offsets.at(rtti.id));
+            rtti.v_table->move(new_entity_buffer + new_offsets.at(rtti.id), component_data.data() + offsets.at(rtti.id));
         }
         //! destroy the removed component
         std::destroy_at(std::launder(reinterpret_cast<Comp *>(component_data.data() + offsets.at(Comp::id))));

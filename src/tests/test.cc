@@ -5,6 +5,10 @@
 
 using namespace ecs;
 
+
+struct Tag : public CompTag<Tag>
+{};
+
 struct CompA : public CompTag<CompA>
 {
     int a;
@@ -25,7 +29,6 @@ struct CompD : public CompTag<CompD>
     int x;
     int y;
 };
-
 
 struct CompFunction : public CompTag<CompFunction>
 {
@@ -242,6 +245,34 @@ namespace  //! THIS NAMESPACE NEEDS TO BE ANONYMOUS FOR SOME REASON???
         call_count = 0;
         world.forEach(action2);
         EXPECT_EQ(call_count, 1); //AB and ABC archetypes get used
+    }
+    TEST(TaggedAction, ActionTests)
+    {
+        EntityWorld world;
+        
+        auto e0 = world.addEntity(CompA{.a=1}, CompB{.x=5});
+        auto e1 = world.addEntity(CompA{.a=1}, CompB{.x=5}, Tag{});
+        auto e2 = world.addEntity(CompA{.a=1}, CompC{.x='C'});
+        auto e3 = world.addEntity(CompA{.a=1}, CompB{.x=5}, CompC{.x='C'}, Tag{});
+
+        int call_count = 0;
+        auto action = [&call_count](CompA& a, CompB& b)
+        {
+            EXPECT_EQ(a.a, 1);
+            EXPECT_FLOAT_EQ(b.x, 5);
+            call_count++;
+        };
+        world.forEach(action);
+        EXPECT_EQ(call_count, 3); //AB and ABC archetypes get used
+        call_count = 0;
+        auto action2 = [&call_count](CompA& a, CompB& b, Tag& c)
+        {
+            EXPECT_EQ(a.a, 1);
+            EXPECT_FLOAT_EQ(b.x, 5);
+            call_count++;
+        };
+        world.forEach(action2);
+        EXPECT_EQ(call_count, 2);
     }
     TEST(SwappedParametersAction, ActionTests)
     {
